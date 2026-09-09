@@ -1,0 +1,49 @@
+name: Update README timestamp
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: update-readme
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Update timestamp in README
+        run: |
+          TS=$(TZ="Asia/Bangkok" date "+%Y-%m-%d %H:%M:%S %z (Asia/Bangkok)")
+          python3 - "$TS" <<'EOF'
+          import re, sys, pathlib
+          ts = sys.argv[1]
+          p = pathlib.Path("README.md")
+          text = p.read_text(encoding="utf-8")
+          new = re.sub(
+              r"(<!-- LAST_UPDATED_START -->).*?(<!-- LAST_UPDATED_END -->)",
+              f"\\1\nLast updated: {ts}\n\\2",
+              text,
+              flags=re.DOTALL,
+          )
+          p.write_text(new, encoding="utf-8")
+          EOF
+
+      - name: Commit and push if changed
+        run: |
+          if git diff --quiet -- README.md; then
+            echo "No changes to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git commit -m "chore: update readme timestamp [skip ci]"
+          git push
