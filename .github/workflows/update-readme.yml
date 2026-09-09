@@ -19,31 +19,47 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Update timestamp in README
+      - name: Update README and run log
         run: |
-          TS=$(TZ="Asia/Bangkok" date "+%Y-%m-%d %H:%M:%S %z (Asia/Bangkok)")
-          python3 - "$TS" <<'EOF'
-          import re, sys, pathlib
-          ts = sys.argv[1]
-          p = pathlib.Path("README.md")
-          text = p.read_text(encoding="utf-8")
-          new = re.sub(
-              r"(<!-- LAST_UPDATED_START -->).*?(<!-- LAST_UPDATED_END -->)",
-              f"\\1\nLast updated: {ts}\n\\2",
-              text,
-              flags=re.DOTALL,
+          python3 <<'EOF'
+          import json, re, pathlib
+          from datetime import datetime, timezone, timedelta
+
+          now_utc = datetime.now(timezone.utc)
+          bkk = now_utc.astimezone(timezone(timedelta(hours=7)))
+
+          # README: Thai local time, inside the marker block
+          readme = pathlib.Path("README.md")
+          stamp = bkk.strftime("%Y-%m-%d %H:%M:%S %z (Asia/Bangkok)")
+          readme.write_text(
+              re.sub(
+                  r"(<!-- LAST_UPDATED_START -->).*?(<!-- LAST_UPDATED_END -->)",
+                  f"\\1\nLast updated: {stamp}\n\\2",
+                  readme.read_text(encoding="utf-8"),
+                  flags=re.DOTALL,
+              ),
+              encoding="utf-8",
           )
-          p.write_text(new, encoding="utf-8")
+
+          # runs/<UTC year>.json: UTC, grouped by UTC date
+          runs_dir = pathlib.Path("runs")
+          runs_dir.mkdir(exist_ok=True)
+          f = runs_dir / f"{now_utc.year}.json"
+          data = json.loads(f.read_text(encoding="utf-8")) if f.exists() else {}
+          data.setdefault(now_utc.strftime("%Y-%m-%d"), []).append(
+              now_utc.strftime("%Y-%m-%dT%H:%M:%SZ")
+          )
+          f.write_text(json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8")
           EOF
 
       - name: Commit and push if changed
         run: |
-          if git diff --quiet -- README.md; then
+          git add README.md runs/
+          if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
           fi
-          git config user.name "Garfiwld"
-          git config user.email "garfiwld@users.noreply.github.com"
-          git add README.md
-          git commit -m "chore: update readme timestamp"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: update timestamp"
           git push
